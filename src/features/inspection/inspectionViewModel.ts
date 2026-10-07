@@ -23,7 +23,7 @@ export class InspectionViewModel {
     this.workspace.restoreVersion(versionId);
   }
 
-  copyToProject(versionId: string): void {
-    this.workspace.copyVersionToProject(versionId);
+  deriveCopy(versionId: string): void {
+    this.workspace.deriveVersionCopy(versionId);
   }
 }

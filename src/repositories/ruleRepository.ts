@@ -1,4 +1,4 @@
-import type { BusinessRule, RuleField, RuleProject, RuleVersion, WorkspaceDocument } from '../models/ruleModel';
+import type { BusinessRule, RuleField, RuleProject, RuleVersion, VersionProvenance, WorkspaceDocument } from '../models/ruleModel';
 import { defaultSample } from '../domain/conditionEvaluator';
 import { ProjectStorageService } from '../services/projectStorageService';
 
@@ -45,7 +45,36 @@ function decodeProject(value: unknown): RuleProject | null {
     updatedAt: value.updatedAt,
   };
   if (typeof value.frozenVersionId === 'string') project.frozenVersionId = value.frozenVersionId;
+  const derivedFrom = decodeProvenance(value.derivedFrom);
+  if (derivedFrom) project.derivedFrom = derivedFrom;
   return project;
+}
+
+function decodeProvenance(value: unknown): VersionProvenance | null {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value)
+    || typeof value.projectId !== 'string'
+    || typeof value.projectTitle !== 'string'
+    || typeof value.versionId !== 'string'
+    || typeof value.versionName !== 'string'
+    || typeof value.derivedAt !== 'number'
+    || !isRecord(value.snapshot)) return null;
+  const { snapshot } = value;
+  if (!Array.isArray(snapshot.fields) || !snapshot.fields.every(isRuleField)) return null;
+  if (!Array.isArray(snapshot.rules) || !snapshot.rules.every(isBusinessRule)) return null;
+  if (!isRecord(snapshot.sampleInputs)) return null;
+  return {
+    projectId: value.projectId,
+    projectTitle: value.projectTitle,
+    versionId: value.versionId,
+    versionName: value.versionName,
+    derivedAt: value.derivedAt,
+    snapshot: {
+      fields: snapshot.fields,
+      rules: snapshot.rules,
+      sampleInputs: snapshot.sampleInputs as VersionProvenance['snapshot']['sampleInputs'],
+    },
+  };
 }
 
 function isRuleField(value: unknown): value is RuleField {

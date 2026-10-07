@@ -1,4 +1,6 @@
-import type { BusinessRule, RuleAnalysis, RuleProject, RuleVersion, SampleInput } from '../../models/ruleModel';
+import { useState } from 'react';
+import type { BusinessRule, RuleAnalysis, RuleProject, RuleVersion, SampleInput, VersionProvenance } from '../../models/ruleModel';
+import { fieldLabel } from '../../models/ruleModel';
 import type { WorkspaceState } from '../../viewmodels/workspaceViewModel';
 import type { InspectionViewModel } from './inspectionViewModel';
 
@@ -23,8 +25,9 @@ export function InspectionView({ state, viewModel, onOpenRule }: InspectionViewP
       {analysis && <AnalysisPanel analysis={analysis} project={project as RuleProject} byId={byId} onOpenRule={onOpenRule} />}
 
       <section className="versions-section">
-        <div className="versions-heading"><div><span className="eyebrow">CHANGE HISTORY</span><h2>规则版本</h2><p>保存检查前后的结构快照。冻结后，当前规则只能通过复制版本继续修改。</p></div><div className="button-row"><button className="button button-subtle" disabled={!rules.length} onClick={() => viewModel.saveVersion()}>＋ 保存版本</button><button className="button button-outline" disabled={!rules.length || Boolean(project?.frozenVersionId)} onClick={() => viewModel.freeze()}>◈ 冻结当前</button></div></div>
-        {project?.versions.length ? <div className="version-list">{project.versions.map((version, index) => <VersionRow key={version.id} version={version} index={index} current={project.frozenVersionId === version.id} onContinue={() => viewModel.continueFrom(version.id)} onCopy={() => viewModel.copyToProject(version.id)} />)}</div> : <div className="version-empty card-surface"><span>◷</span><p>还没有保存版本。规则结构和检查结果确认后，可以创建第一个快照。</p></div>}
+        {project?.derivedFrom && <ProvenanceCard provenance={project.derivedFrom} />}
+        <div className="versions-heading"><div><span className="eyebrow">CHANGE HISTORY</span><h2>规则版本</h2><p>保存检查前后的结构快照。冻结后，当前规则只能通过派生副本继续修改。</p></div><div className="button-row"><button className="button button-subtle" disabled={!rules.length} onClick={() => viewModel.saveVersion()}>＋ 保存版本</button><button className="button button-outline" disabled={!rules.length || Boolean(project?.frozenVersionId)} onClick={() => viewModel.freeze()}>◈ 冻结当前</button></div></div>
+        {project?.versions.length ? <div className="version-list">{project.versions.map((version, index) => <VersionRow key={version.id} version={version} index={index} current={project.frozenVersionId === version.id} onContinue={() => viewModel.continueFrom(version.id)} onDerive={() => viewModel.deriveCopy(version.id)} />)}</div> : <div className="version-empty card-surface"><span>◷</span><p>还没有保存版本。规则结构和检查结果确认后，可以创建第一个快照。</p></div>}
       </section>
     </section>
   );
@@ -73,8 +76,38 @@ function formatWitness(values: SampleInput, project: RuleProject): string {
   }).join(' · ');
 }
 
-function VersionRow({ version, index, current, onContinue, onCopy }: { version: RuleVersion; index: number; current: boolean; onContinue: () => void; onCopy: () => void }) {
-  return <article className={`version-row${current ? ' version-current' : ''}`}><span className="version-number">{String(index + 1).padStart(2, '0')}</span><div className="version-copy"><strong>{version.name}{current && <em>当前冻结</em>}</strong><span>{formatDate(version.savedAt)} · {version.fields.length} 字段 · {version.rules.length} 条规则</span></div><div className="version-actions">{!version.frozen && <button className="text-button" onClick={onContinue}>从此版本继续</button>}<button className="text-button" onClick={onCopy}>复制为项目</button><span className={version.frozen ? 'version-state frozen' : 'version-state'}>{version.frozen ? '◈ 已冻结' : '◷ 快照'}</span></div></article>;
+function VersionRow({ version, index, current, onContinue, onDerive }: { version: RuleVersion; index: number; current: boolean; onContinue: () => void; onDerive: () => void }) {
+  return <article className={`version-row${current ? ' version-current' : ''}`}><span className="version-number">{String(index + 1).padStart(2, '0')}</span><div className="version-copy"><strong>{version.name}{current && <em>当前冻结</em>}</strong><span>{formatDate(version.savedAt)} · {version.fields.length} 字段 · {version.rules.length} 条规则</span></div><div className="version-actions">{!version.frozen && <button className="text-button" onClick={onContinue}>从此版本继续</button>}<button className="text-button" onClick={onDerive}>派生副本</button><span className={version.frozen ? 'version-state frozen' : 'version-state'}>{version.frozen ? '◈ 已冻结' : '◷ 快照'}</span></div></article>;
+}
+
+function ProvenanceCard({ provenance }: { provenance: VersionProvenance }) {
+  const [expanded, setExpanded] = useState(false);
+  const { snapshot } = provenance;
+  return (
+    <section className="provenance-card card-surface">
+      <header className="provenance-heading">
+        <span className="provenance-icon">⎇</span>
+        <div className="provenance-copy">
+          <span className="eyebrow">DERIVED FROM</span>
+          <strong>派生自「{provenance.projectTitle} · {provenance.versionName}」</strong>
+          <span className="provenance-meta">派生于 {formatDate(provenance.derivedAt)} · 原内容已随副本留存，来源信息在后续编辑与保存版本时保持不变</span>
+        </div>
+        <button className="text-button" onClick={() => setExpanded((value) => !value)}>{expanded ? '收起原始内容 ↑' : '查看派生时的原始内容 ↓'}</button>
+      </header>
+      {expanded && (
+        <div className="provenance-snapshot">
+          <div className="provenance-column">
+            <span className="eyebrow">字段 {snapshot.fields.length}</span>
+            {snapshot.fields.map((field) => <div className="provenance-row" key={field.id}><strong>{fieldLabel(field)}</strong><span>{field.type === 'number' ? `数值 ${field.min ?? '—'} ~ ${field.max ?? '—'}` : field.type === 'enum' ? `枚举 · ${(field.enumValues ?? []).join(' / ')}` : '布尔'}</span></div>)}
+          </div>
+          <div className="provenance-column">
+            <span className="eyebrow">规则 {snapshot.rules.length}</span>
+            {snapshot.rules.map((rule) => <div className="provenance-row" key={rule.id}><strong>{rule.name}</strong><span>优先级 {rule.priority} · {rule.result}</span></div>)}
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function formatDate(time: number): string {

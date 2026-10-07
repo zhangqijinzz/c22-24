@@ -82,7 +82,7 @@ describe('RuleWorkspaceViewModel', () => {
     workspace.dispose();
   });
 
-  it('saves versions, freezes and resumes a version, and copies it into a new project', async () => {
+  it('saves versions, freezes and resumes a version, and derives an editable copy', async () => {
     const workspace = new RuleWorkspaceViewModel(new MemoryRepository(), new FakeChecker());
     await workspace.start();
     workspace.saveVersion();
@@ -96,9 +96,59 @@ describe('RuleWorkspaceViewModel', () => {
 
     workspace.restoreVersion(savedVersion?.id ?? '');
     expect(workspace.getSnapshot().project?.frozenVersionId).toBeUndefined();
-    workspace.copyVersionToProject(savedVersion?.id ?? '');
+    workspace.deriveVersionCopy(savedVersion?.id ?? '');
     expect(workspace.getSnapshot().workspace?.projects).toHaveLength(2);
     expect(workspace.getSnapshot().project?.fields).toHaveLength(3);
+    workspace.dispose();
+  });
+
+  it('derives a copy that records provenance and keeps it through edits, versions and reloads', async () => {
+    const repository = new MemoryRepository();
+    const workspace = new RuleWorkspaceViewModel(repository, new FakeChecker());
+    await workspace.start();
+    const source = workspace.getSnapshot().project as RuleProject;
+    workspace.freezeCurrent();
+    const frozenVersion = workspace.getSnapshot().project?.versions[0];
+    expect(frozenVersion?.frozen).toBe(true);
+
+    workspace.deriveVersionCopy(frozenVersion?.id ?? '');
+    const derived = workspace.getSnapshot().project as RuleProject;
+    expect(derived.id).not.toBe(source.id);
+    expect(derived.derivedFrom).toMatchObject({
+      projectId: source.id,
+      projectTitle: source.title,
+      versionId: frozenVersion?.id,
+      versionName: frozenVersion?.name,
+    });
+    expect(derived.derivedFrom?.snapshot.fields).toEqual(frozenVersion?.fields);
+    expect(derived.derivedFrom?.snapshot.rules).toEqual(frozenVersion?.rules);
+
+    // 源项目保持冻结且内容不变
+    const untouched = workspace.getSnapshot().workspace?.projects.find((project) => project.id === source.id);
+    expect(untouched?.frozenVersionId).toBe(frozenVersion?.id);
+    expect(untouched?.rules).toEqual(source.rules);
+
+    // 后续编辑（即使提交的对象不带来源）不会覆盖来源信息
+    workspace.commitProject({ ...derived, title: '副本微调', rules: derived.rules.slice(1), derivedFrom: undefined }, '编辑副本');
+    const edited = workspace.getSnapshot().project as RuleProject;
+    expect(edited.title).toBe('副本微调');
+    expect(edited.derivedFrom).toEqual(derived.derivedFrom);
+
+    // 保存版本后来源信息仍然保留
+    workspace.saveVersion();
+    const versioned = workspace.getSnapshot().project as RuleProject;
+    expect(versioned.versions).toHaveLength(1);
+    expect(versioned.derivedFrom).toEqual(derived.derivedFrom);
+
+    // 持久化并重新载入后，来源与派生时的原始内容仍可回看
+    await vi.advanceTimersByTimeAsync(250);
+    await workspace.flushSave();
+    const restored = new RuleWorkspaceViewModel(repository, new FakeChecker());
+    await restored.start();
+    const reloaded = restored.getSnapshot().workspace?.projects.find((project) => project.id === derived.id);
+    expect(reloaded?.derivedFrom).toEqual(derived.derivedFrom);
+    expect(reloaded?.derivedFrom?.snapshot.rules).toEqual(frozenVersion?.rules);
+    restored.dispose();
     workspace.dispose();
   });
 });

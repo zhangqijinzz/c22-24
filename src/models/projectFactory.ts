@@ -1,5 +1,4 @@
 import type { BusinessRule, RuleProject, RuleVersion, WorkspaceDocument } from './ruleModel';
-
 export function createDemoWorkspace(): WorkspaceDocument {
   const fields: RuleProject['fields'] = [
     { id: 'member-level', name: '会员等级', type: 'enum', enumValues: ['普通会员', '银卡会员', '金卡会员'] },
@@ -40,6 +39,23 @@ export function createVersionSnapshot(project: RuleProject, name: string, frozen
   return {
     id: makeId('version'), name, savedAt: Date.now(), frozen,
     fields: cloneData(project.fields), rules: cloneData(project.rules), sampleInputs: cloneData(project.sampleInputs),
+  };
+}
+
+export function createDerivedProject(source: RuleProject, version: RuleVersion): RuleProject {
+  const snapshot = {
+    fields: cloneData(version.fields), rules: cloneData(version.rules), sampleInputs: cloneData(version.sampleInputs),
+  };
+  return {
+    id: makeId('project'), title: `${source.title} · ${version.name}副本`,
+    fields: cloneData(snapshot.fields), rules: cloneData(snapshot.rules), sampleInputs: cloneData(snapshot.sampleInputs),
+    versions: [],
+    derivedFrom: {
+      projectId: source.id, projectTitle: source.title,
+      versionId: version.id, versionName: version.name,
+      derivedAt: Date.now(), snapshot,
+    },
+    updatedAt: Date.now(),
   };
 }
 
