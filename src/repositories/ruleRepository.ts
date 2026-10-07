@@ -1,4 +1,4 @@
-import type { BusinessRule, RuleField, RuleProject, RuleVersion, WorkspaceDocument } from '../models/ruleModel';
+import type { BusinessRule, RuleField, RuleProject, RuleVersion, VersionProvenance, WorkspaceDocument } from '../models/ruleModel';
 import { defaultSample } from '../domain/conditionEvaluator';
 import { ProjectStorageService } from '../services/projectStorageService';
 
@@ -45,7 +45,17 @@ function decodeProject(value: unknown): RuleProject | null {
     updatedAt: value.updatedAt,
   };
   if (typeof value.frozenVersionId === 'string') project.frozenVersionId = value.frozenVersionId;
+  if (isVersionProvenance(value.derivedFrom)) project.derivedFrom = value.derivedFrom;
   return project;
+}
+
+function isVersionProvenance(value: unknown): value is VersionProvenance {
+  return isRecord(value)
+    && typeof value.projectId === 'string'
+    && typeof value.projectTitle === 'string'
+    && typeof value.versionId === 'string'
+    && typeof value.versionName === 'string'
+    && typeof value.derivedAt === 'number';
 }
 
 function isRuleField(value: unknown): value is RuleField {

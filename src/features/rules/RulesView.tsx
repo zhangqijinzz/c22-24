@@ -13,7 +13,7 @@ export function RulesView({ state, viewModel }: RulesViewProps) {
         <div><span className="eyebrow">模块 02 / 决策逻辑</span><h1>规则工作台</h1><p>用字段条件描述命中路径，并为每条规则分配优先级和结果。</p></div>
         <button className="button button-primary" onClick={() => viewModel.addRule()}><span>＋</span> 新建规则</button>
       </div>
-      {project?.frozenVersionId && <div className="frozen-notice">◈ 当前项目已冻结。到检查与版本模块复制此版本后继续编辑。</div>}
+      {project?.frozenVersionId && <div className="frozen-notice">◈ 当前项目已冻结。到检查与版本模块派生此版本的副本后继续编辑。</div>}
       {project && project.fields.length === 0 && <div className="inline-issue">先到“字段定义”添加输入字段，再为规则设置条件。</div>}
       {rules.length === 0 ? <div className="empty-card card-surface"><div className="empty-icon">⌘</div><h2>规则还没有开始编织</h2><p>创建第一条规则，组合一个或多个字段条件，并填写命中结果。</p></div> : (
         <div className="rules-list">

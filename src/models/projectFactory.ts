@@ -43,6 +43,22 @@ export function createVersionSnapshot(project: RuleProject, name: string, frozen
   };
 }
 
+export function createDerivedProject(source: RuleProject, version: RuleVersion): RuleProject {
+  return {
+    id: makeId('project'), title: `${source.title} · ${version.name}副本`,
+    fields: cloneData(version.fields), rules: cloneData(version.rules), sampleInputs: cloneData(version.sampleInputs),
+    versions: [],
+    derivedFrom: {
+      projectId: source.id,
+      projectTitle: source.title,
+      versionId: version.id,
+      versionName: version.name,
+      derivedAt: Date.now(),
+    },
+    updatedAt: Date.now(),
+  };
+}
+
 export function cloneData<T>(value: T): T {
   return structuredClone(value);
 }

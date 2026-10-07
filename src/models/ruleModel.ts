@@ -50,6 +50,14 @@ export interface RuleVersion {
   sampleInputs: SampleInput;
 }
 
+export interface VersionProvenance {
+  projectId: string;
+  projectTitle: string;
+  versionId: string;
+  versionName: string;
+  derivedAt: number;
+}
+
 export interface RuleProject {
   id: string;
   title: string;
@@ -58,6 +66,7 @@ export interface RuleProject {
   sampleInputs: SampleInput;
   versions: RuleVersion[];
   frozenVersionId?: string;
+  derivedFrom?: VersionProvenance;
   updatedAt: number;
 }
 

@@ -1,3 +1,4 @@
+import type { RuleProject, RuleVersion } from '../../models/ruleModel';
 import type { RuleWorkspaceViewModel } from '../../viewmodels/workspaceViewModel';
 
 export class InspectionViewModel {
@@ -23,7 +24,11 @@ export class InspectionViewModel {
     this.workspace.restoreVersion(versionId);
   }
 
-  copyToProject(versionId: string): void {
-    this.workspace.copyVersionToProject(versionId);
+  deriveToProject(versionId: string): void {
+    this.workspace.deriveVersionToProject(versionId);
+  }
+
+  derivedSource(): { project: RuleProject; version: RuleVersion } | null {
+    return this.workspace.getProvenanceSource();
   }
 }

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { analyzeRules } from '../domain/ruleAnalysis';
 import type { RuleProject, WorkspaceDocument } from '../models/ruleModel';
+import { RuleRepository } from '../repositories/ruleRepository';
+import type { ProjectStorageService } from '../services/projectStorageService';
 import type { CheckOperation } from '../services/ruleCheckService';
 import { RuleWorkspaceViewModel } from '../viewmodels/workspaceViewModel';
 
@@ -8,6 +10,13 @@ class MemoryRepository {
   document: WorkspaceDocument | null = null;
   async load() { return this.document ? structuredClone(this.document) : null; }
   async save(document: WorkspaceDocument) { this.document = structuredClone(document); }
+}
+
+class StubStorage {
+  constructor(private readonly value: unknown) {}
+  async read() { return this.value; }
+  readFallback() { return null; }
+  async write() { return undefined; }
 }
 
 class FakeChecker {
@@ -82,7 +91,7 @@ describe('RuleWorkspaceViewModel', () => {
     workspace.dispose();
   });
 
-  it('saves versions, freezes and resumes a version, and copies it into a new project', async () => {
+  it('saves versions, freezes and resumes a version, and derives it into a new project', async () => {
     const workspace = new RuleWorkspaceViewModel(new MemoryRepository(), new FakeChecker());
     await workspace.start();
     workspace.saveVersion();
@@ -96,9 +105,66 @@ describe('RuleWorkspaceViewModel', () => {
 
     workspace.restoreVersion(savedVersion?.id ?? '');
     expect(workspace.getSnapshot().project?.frozenVersionId).toBeUndefined();
-    workspace.copyVersionToProject(savedVersion?.id ?? '');
+    workspace.deriveVersionToProject(savedVersion?.id ?? '');
     expect(workspace.getSnapshot().workspace?.projects).toHaveLength(2);
     expect(workspace.getSnapshot().project?.fields).toHaveLength(3);
+    workspace.dispose();
+  });
+
+  it('derives an editable copy from a frozen version and keeps provenance across edits and saves', async () => {
+    const repository = new MemoryRepository();
+    const workspace = new RuleWorkspaceViewModel(repository, new FakeChecker());
+    await workspace.start();
+    const sourceId = workspace.getSnapshot().project?.id ?? '';
+    const sourceTitle = workspace.getSnapshot().project?.title ?? '';
+
+    workspace.freezeCurrent();
+    const frozenVersion = workspace.getSnapshot().project?.versions[0];
+    expect(frozenVersion?.frozen).toBe(true);
+
+    workspace.deriveVersionToProject(frozenVersion?.id ?? '');
+    const derived = workspace.getSnapshot().project as RuleProject;
+    expect(derived.id).not.toBe(sourceId);
+    expect(derived.frozenVersionId).toBeUndefined();
+    expect(derived.derivedFrom).toMatchObject({
+      projectId: sourceId,
+      projectTitle: sourceTitle,
+      versionId: frozenVersion?.id,
+      versionName: frozenVersion?.name,
+    });
+
+    workspace.commitProject({ ...derived, title: '冻结后的小调整' }, '测试编辑', { recheck: false });
+    expect(workspace.getSnapshot().project?.title).toBe('冻结后的小调整');
+    expect(workspace.getSnapshot().project?.derivedFrom).toEqual(derived.derivedFrom);
+
+    workspace.saveVersion();
+    const afterSave = workspace.getSnapshot().project as RuleProject;
+    expect(afterSave.versions).toHaveLength(1);
+    expect(afterSave.derivedFrom).toEqual(derived.derivedFrom);
+
+    workspace.restoreVersion(afterSave.versions[0].id);
+    expect(workspace.getSnapshot().project?.derivedFrom).toEqual(derived.derivedFrom);
+
+    const source = workspace.getProvenanceSource();
+    expect(source?.project.id).toBe(sourceId);
+    expect(source?.version.id).toBe(frozenVersion?.id);
+    expect(source?.version.rules).toHaveLength(4);
+    workspace.dispose();
+  });
+
+  it('preserves provenance through the repository round trip', async () => {
+    const repository = new MemoryRepository();
+    const workspace = new RuleWorkspaceViewModel(repository, new FakeChecker());
+    await workspace.start();
+    workspace.freezeCurrent();
+    workspace.deriveVersionToProject(workspace.getSnapshot().project?.versions[0]?.id ?? '');
+    const provenance = workspace.getSnapshot().project?.derivedFrom;
+    await vi.advanceTimersByTimeAsync(250);
+    await workspace.flushSave();
+
+    const decoded = await new RuleRepository(new StubStorage(repository.document) as unknown as ProjectStorageService).load();
+    const restored = decoded?.projects.find((project) => project.id === workspace.getSnapshot().project?.id);
+    expect(restored?.derivedFrom).toEqual(provenance);
     workspace.dispose();
   });
 });

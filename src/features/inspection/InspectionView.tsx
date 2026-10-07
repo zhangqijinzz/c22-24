@@ -1,4 +1,5 @@
-import type { BusinessRule, RuleAnalysis, RuleProject, RuleVersion, SampleInput } from '../../models/ruleModel';
+import { useState } from 'react';
+import { fieldLabel, type BusinessRule, type RuleAnalysis, type RuleField, type RuleProject, type RuleVersion, type SampleInput, type VersionProvenance } from '../../models/ruleModel';
 import type { WorkspaceState } from '../../viewmodels/workspaceViewModel';
 import type { InspectionViewModel } from './inspectionViewModel';
 
@@ -23,8 +24,9 @@ export function InspectionView({ state, viewModel, onOpenRule }: InspectionViewP
       {analysis && <AnalysisPanel analysis={analysis} project={project as RuleProject} byId={byId} onOpenRule={onOpenRule} />}
 
       <section className="versions-section">
-        <div className="versions-heading"><div><span className="eyebrow">CHANGE HISTORY</span><h2>规则版本</h2><p>保存检查前后的结构快照。冻结后，当前规则只能通过复制版本继续修改。</p></div><div className="button-row"><button className="button button-subtle" disabled={!rules.length} onClick={() => viewModel.saveVersion()}>＋ 保存版本</button><button className="button button-outline" disabled={!rules.length || Boolean(project?.frozenVersionId)} onClick={() => viewModel.freeze()}>◈ 冻结当前</button></div></div>
-        {project?.versions.length ? <div className="version-list">{project.versions.map((version, index) => <VersionRow key={version.id} version={version} index={index} current={project.frozenVersionId === version.id} onContinue={() => viewModel.continueFrom(version.id)} onCopy={() => viewModel.copyToProject(version.id)} />)}</div> : <div className="version-empty card-surface"><span>◷</span><p>还没有保存版本。规则结构和检查结果确认后，可以创建第一个快照。</p></div>}
+        <div className="versions-heading"><div><span className="eyebrow">CHANGE HISTORY</span><h2>规则版本</h2><p>保存检查前后的结构快照。冻结后内容不再变化，可派生一份记录来源的可编辑副本继续修改。</p></div><div className="button-row"><button className="button button-subtle" disabled={!rules.length} onClick={() => viewModel.saveVersion()}>＋ 保存版本</button><button className="button button-outline" disabled={!rules.length || Boolean(project?.frozenVersionId)} onClick={() => viewModel.freeze()}>◈ 冻结当前</button></div></div>
+        {project?.derivedFrom && <ProvenanceCard provenance={project.derivedFrom} source={viewModel.derivedSource()} />}
+        {project?.versions.length ? <div className="version-list">{project.versions.map((version, index) => <VersionRow key={version.id} version={version} index={index} current={project.frozenVersionId === version.id} onContinue={() => viewModel.continueFrom(version.id)} onDerive={() => viewModel.deriveToProject(version.id)} />)}</div> : <div className="version-empty card-surface"><span>◷</span><p>还没有保存版本。规则结构和检查结果确认后，可以创建第一个快照。</p></div>}
       </section>
     </section>
   );
@@ -45,10 +47,10 @@ function AnalysisPanel({ analysis, project, byId, onOpenRule }: AnalysisPanelPro
     {analysis.truncated && <div className="truncated-banner">输入空间超过单次检查上限，以下数据来自已分析分区；请减少字段组合后再次检查。</div>}
     <div className="analysis-grid">
       <section className="analysis-card card-surface"><header className="analysis-card-heading"><span className="analysis-icon conflict-icon">⇄</span><div><h2>重叠与冲突</h2><p>同一输入命中多条规则；同优先级且结果不同会产生冲突。</p></div><b>{overlapCount}</b></header>
-        {overlapCount ? <div className="finding-list">{analysis.overlaps.slice(0, 6).map((overlap) => <div className="finding-row" key={`${overlap.ruleAId}-${overlap.ruleBId}`}><div className="finding-copy"><div><button className="inline-rule-link" onClick={() => onOpenRule(overlap.ruleAId)}>{byId.get(overlap.ruleAId)?.name ?? overlap.ruleAId}</button><span className="finding-join">↔</span><button className="inline-rule-link" onClick={() => onOpenRule(overlap.ruleBId)}>{byId.get(overlap.ruleBId)?.name ?? overlap.ruleBId}</button></div><span>{formatWitness(overlap.witness, project)}</span></div><span className={overlap.conflict ? 'severity-tag severity-danger' : 'severity-tag severity-warn'}>{overlap.conflict ? '结果冲突' : '条件重叠'}</span></div>)}</div> : <SuccessEmpty text="没有发现规则重叠" />}
+        {overlapCount ? <div className="finding-list">{analysis.overlaps.slice(0, 6).map((overlap) => <div className="finding-row" key={`${overlap.ruleAId}-${overlap.ruleBId}`}><div className="finding-copy"><div><button className="inline-rule-link" onClick={() => onOpenRule(overlap.ruleAId)}>{byId.get(overlap.ruleAId)?.name ?? overlap.ruleAId}</button><span className="finding-join">↔</span><button className="inline-rule-link" onClick={() => onOpenRule(overlap.ruleBId)}>{byId.get(overlap.ruleBId)?.name ?? overlap.ruleBId}</button></div><span>{formatWitness(overlap.witness, project.fields)}</span></div><span className={overlap.conflict ? 'severity-tag severity-danger' : 'severity-tag severity-warn'}>{overlap.conflict ? '结果冲突' : '条件重叠'}</span></div>)}</div> : <SuccessEmpty text="没有发现规则重叠" />}
       </section>
       <section className="analysis-card card-surface"><header className="analysis-card-heading"><span className="analysis-icon coverage-icon">◔</span><div><h2>未覆盖输入</h2><p>没有任何规则命中的合法输入组合。</p></div><b>{analysis.uncoveredExamples.length ? '有' : '无'}</b></header>
-        {analysis.uncoveredExamples.length ? <div className="finding-list">{analysis.uncoveredExamples.map((example, index) => <div className="uncovered-row" key={index}><span className="uncovered-index">0{index + 1}</span><div><strong>未命中输入组合</strong><span>{formatWitness(example, project)}</span></div><span className="severity-tag severity-warn">未覆盖</span></div>)}</div> : <SuccessEmpty text="输入空间已完整覆盖" />}
+        {analysis.uncoveredExamples.length ? <div className="finding-list">{analysis.uncoveredExamples.map((example, index) => <div className="uncovered-row" key={index}><span className="uncovered-index">0{index + 1}</span><div><strong>未命中输入组合</strong><span>{formatWitness(example, project.fields)}</span></div><span className="severity-tag severity-warn">未覆盖</span></div>)}</div> : <SuccessEmpty text="输入空间已完整覆盖" />}
       </section>
       <section className="analysis-card card-surface"><header className="analysis-card-heading"><span className="analysis-icon unreachable-icon">⊘</span><div><h2>不可达规则</h2><p>在字段合法取值范围内，条件组合从未成立。</p></div><b>{analysis.unreachableRuleIds.length}</b></header>
         {analysis.unreachableRuleIds.length ? <div className="compact-findings">{analysis.unreachableRuleIds.map((id) => <button className="compact-rule" key={id} onClick={() => onOpenRule(id)}><span>⌁</span><strong>{byId.get(id)?.name ?? id}</strong><i>编辑条件 →</i></button>)}</div> : <SuccessEmpty text="所有规则都存在可命中输入" />}
@@ -66,15 +68,53 @@ function MetricCard({ label, value, detail, icon, tone }: { label: string; value
 
 function SuccessEmpty({ text }: { text: string }) { return <div className="success-empty"><span>✓</span>{text}</div>; }
 
-function formatWitness(values: SampleInput, project: RuleProject): string {
-  return project.fields.map((field) => {
+function formatWitness(values: SampleInput, fields: RuleField[]): string {
+  return fields.map((field) => {
     const value = values[field.id];
     return `${field.name} ${typeof value === 'boolean' ? value ? '是' : '否' : value ?? '—'}`;
   }).join(' · ');
 }
 
-function VersionRow({ version, index, current, onContinue, onCopy }: { version: RuleVersion; index: number; current: boolean; onContinue: () => void; onCopy: () => void }) {
-  return <article className={`version-row${current ? ' version-current' : ''}`}><span className="version-number">{String(index + 1).padStart(2, '0')}</span><div className="version-copy"><strong>{version.name}{current && <em>当前冻结</em>}</strong><span>{formatDate(version.savedAt)} · {version.fields.length} 字段 · {version.rules.length} 条规则</span></div><div className="version-actions">{!version.frozen && <button className="text-button" onClick={onContinue}>从此版本继续</button>}<button className="text-button" onClick={onCopy}>复制为项目</button><span className={version.frozen ? 'version-state frozen' : 'version-state'}>{version.frozen ? '◈ 已冻结' : '◷ 快照'}</span></div></article>;
+function fieldTypeLabel(field: RuleField): string {
+  if (field.type === 'number') return `数值 ${field.min ?? '-∞'} ~ ${field.max ?? '+∞'}`;
+  if (field.type === 'enum') return `枚举 · ${(field.enumValues ?? []).join(' / ') || '未设置选项'}`;
+  return '布尔';
+}
+
+function ProvenanceCard({ provenance, source }: { provenance: VersionProvenance; source: { project: RuleProject; version: RuleVersion } | null }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <section className="provenance-card card-surface">
+      <header className="provenance-heading">
+        <span className="analysis-icon provenance-icon">⎇</span>
+        <div className="provenance-copy">
+          <h2>派生副本</h2>
+          <p>来源：{provenance.projectTitle} / {provenance.versionName} · 派生于 {formatDate(provenance.derivedAt)}。来源信息在后续编辑与保存版本时保留，源版本内容保持不变。</p>
+        </div>
+        <button className="text-button" onClick={() => setExpanded((value) => !value)}>{expanded ? '收起原始内容' : '查看原始内容'}</button>
+      </header>
+      {expanded && (source
+        ? <div className="provenance-source">
+            <div className="provenance-block">
+              <span className="eyebrow">字段 · {source.version.fields.length}</span>
+              <ul>{source.version.fields.map((field) => <li key={field.id}><strong>{fieldLabel(field)}</strong><span>{fieldTypeLabel(field)}</span></li>)}</ul>
+            </div>
+            <div className="provenance-block">
+              <span className="eyebrow">规则 · {source.version.rules.length}</span>
+              <ul>{source.version.rules.map((rule) => <li key={rule.id}><strong>{rule.name}</strong><span>优先级 {rule.priority} → {rule.result}</span></li>)}</ul>
+            </div>
+            <div className="provenance-block">
+              <span className="eyebrow">样例输入</span>
+              <p className="provenance-sample">{formatWitness(source.version.sampleInputs, source.version.fields)}</p>
+            </div>
+          </div>
+        : <div className="provenance-missing">源项目或源版本已不在当前工作区，仅保留以上来源记录。</div>)}
+    </section>
+  );
+}
+
+function VersionRow({ version, index, current, onContinue, onDerive }: { version: RuleVersion; index: number; current: boolean; onContinue: () => void; onDerive: () => void }) {
+  return <article className={`version-row${current ? ' version-current' : ''}`}><span className="version-number">{String(index + 1).padStart(2, '0')}</span><div className="version-copy"><strong>{version.name}{current && <em>当前冻结</em>}</strong><span>{formatDate(version.savedAt)} · {version.fields.length} 字段 · {version.rules.length} 条规则</span></div><div className="version-actions">{!version.frozen && <button className="text-button" onClick={onContinue}>从此版本继续</button>}<button className="text-button" onClick={onDerive}>派生副本</button><span className={version.frozen ? 'version-state frozen' : 'version-state'}>{version.frozen ? '◈ 已冻结' : '◷ 快照'}</span></div></article>;
 }
 
 function formatDate(time: number): string {

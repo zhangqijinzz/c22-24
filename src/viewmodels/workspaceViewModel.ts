@@ -4,10 +4,11 @@ import type {
   ModuleId,
   RuleAnalysis,
   RuleProject,
+  RuleVersion,
   SampleEvaluation,
   WorkspaceDocument,
 } from '../models/ruleModel';
-import { cloneData, createBlankProject, createDemoWorkspace, createVersionSnapshot, makeId } from '../models/projectFactory';
+import { cloneData, createBlankProject, createDemoWorkspace, createDerivedProject, createVersionSnapshot } from '../models/projectFactory';
 import { RuleRepository } from '../repositories/ruleRepository';
 import { ProjectStorageService } from '../services/projectStorageService';
 import { RuleCheckService, type CheckOperation } from '../services/ruleCheckService';
@@ -87,7 +88,7 @@ export class RuleWorkspaceViewModel implements WorkspacePort {
   commitProject(project: RuleProject, notice = '项目已更新', options: { recheck?: boolean } = {}): boolean {
     const current = this.state.project;
     if (!current || current.frozenVersionId) {
-      this.updateView({ notice: '当前版本已冻结。请先从版本记录中复制一份继续编辑。' });
+      this.updateView({ notice: '当前版本已冻结。请先从版本记录中派生一份副本继续编辑。' });
       return false;
     }
     this.replaceProject({ ...project, updatedAt: Date.now() }, notice, options.recheck !== false);
@@ -197,21 +198,26 @@ export class RuleWorkspaceViewModel implements WorkspacePort {
     this.navigate('rules');
   }
 
-  copyVersionToProject(versionId: string): void {
+  deriveVersionToProject(versionId: string): void {
     const workspace = this.state.workspace;
     const source = this.state.project;
     const version = source?.versions.find((candidate) => candidate.id === versionId);
     if (!workspace || !source || !version) return;
-    const project: RuleProject = {
-      id: makeId('project'), title: `${source.title} · ${version.name}副本`,
-      fields: cloneData(version.fields), rules: cloneData(version.rules), sampleInputs: cloneData(version.sampleInputs),
-      versions: [], updatedAt: Date.now(),
-    };
+    const project = createDerivedProject(source, version);
     const next = { ...workspace, projects: [...workspace.projects, project], activeProjectId: project.id };
     const issues = ruleDomain.validateProject(project);
-    this.publish({ ...this.state, workspace: next, project, phase: issues.length ? 'validating' : 'editing', activeModule: 'rules', checkStatus: issues.length ? 'idle' : 'scheduled', analysis: null, validationIssues: issues, sampleEvaluation: evaluateSample(project, project.sampleInputs), selectedRuleId: project.rules[0]?.id, notice: `已复制版本到项目“${project.title}”` });
+    this.publish({ ...this.state, workspace: next, project, phase: issues.length ? 'validating' : 'editing', activeModule: 'rules', checkStatus: issues.length ? 'idle' : 'scheduled', analysis: null, validationIssues: issues, sampleEvaluation: evaluateSample(project, project.sampleInputs), selectedRuleId: project.rules[0]?.id, notice: `已派生副本“${project.title}”，来源：${source.title} / ${version.name}` });
     this.scheduleSave(next);
     if (!issues.length) this.scheduleCheck(80);
+  }
+
+  getProvenanceSource(): { project: RuleProject; version: RuleVersion } | null {
+    const provenance = this.state.project?.derivedFrom;
+    if (!provenance) return null;
+    const project = this.state.workspace?.projects.find((candidate) => candidate.id === provenance.projectId);
+    const version = project?.versions.find((candidate) => candidate.id === provenance.versionId);
+    if (!project || !version) return null;
+    return { project, version };
   }
 
   private async initialize(): Promise<void> {
@@ -236,10 +242,12 @@ export class RuleWorkspaceViewModel implements WorkspacePort {
     const workspace = this.state.workspace;
     if (!workspace) return;
     if (this.state.project?.frozenVersionId && !allowFrozen) {
-      this.updateView({ notice: '当前版本已冻结。请先从版本记录中复制一份继续编辑。' });
+      this.updateView({ notice: '当前版本已冻结。请先从版本记录中派生一份副本继续编辑。' });
       return;
     }
-    const updated = { ...project, updatedAt: Date.now() };
+    const current = this.state.project;
+    const derivedFrom = current && current.id === project.id ? current.derivedFrom ?? project.derivedFrom : project.derivedFrom;
+    const updated = { ...project, derivedFrom, updatedAt: Date.now() };
     const next = { ...workspace, projects: workspace.projects.map((candidate) => candidate.id === updated.id ? updated : candidate) };
     const issues = ruleDomain.validateProject(updated);
     this.publish({
